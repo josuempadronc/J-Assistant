@@ -1,0 +1,391 @@
+#:kivy 2.0
+#:import Window kivy.core.window.Window
+
+<RuneButton@Button>:
+    background_normal: ''
+    background_color: 0, 0, 0, 0
+    bold: True
+    font_size: '13sp'
+    color: (0.3, 0.75, 1.0, 1) if self.state == 'normal' else (1, 1, 1, 1)
+    canvas.before:
+        Color:
+            rgba: (0.05, 0.12, 0.35, 0.18) if self.state == 'normal' else (0.1, 0.35, 0.8, 0.38)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [4]
+        Color:
+            rgba: (0.15, 0.5, 0.9, 0.75) if self.state == 'normal' else (0.3, 0.75, 1.0, 1)
+        Line:
+            rounded_rectangle: [self.x+1, self.y+1, self.width-2, self.height-2, 4]
+            width: 1.1
+
+<CyanLabel@Label>:
+    color: 0.3, 0.8, 1.0, 1
+    bold: True
+
+<BlueLabel@Label>:
+    color: 0.2, 0.55, 1.0, 1
+    bold: True
+
+<J_Layout>:
+    orientation: 'vertical'
+    padding: [14, 18, 14, 12]
+    spacing: 8
+
+    canvas.before:
+        Color:
+            rgba: 0.01, 0.02, 0.08, 1
+        Rectangle:
+            pos: self.pos
+            size: self.size
+        # Viñeta azul central
+        Color:
+            rgba: 0.0, 0.18, 0.5, 0.18
+        Ellipse:
+            pos: self.center_x - self.width*0.6, self.center_y - self.height*0.35
+            size: self.width*1.2, self.height*0.7
+        # Línea de energía diagonal
+        Color:
+            rgba: 0.1, 0.45, 0.9, 0.15
+        Line:
+            points: [0, self.height*0.72, self.width*0.38, self.height*0.48, self.width*0.62, self.height*0.55, self.width, self.height*0.35]
+            width: 1.8
+        Color:
+            rgba: 0.1, 0.45, 0.9, 0.08
+        Line:
+            points: [self.width*0.15, self.height, self.width*0.42, self.height*0.5, self.width*0.9, self.height*0.62]
+            width: 1.2
+        # Borde exterior cian
+        Color:
+            rgba: 0.1, 0.5, 0.9, 0.45
+        Line:
+            rectangle: [self.x+3, self.y+3, self.width-6, self.height-6]
+            width: 1.1
+        # Esquinas tech
+        Color:
+            rgba: 0.2, 0.65, 1.0, 0.65
+        Line:
+            points: [self.x+3, self.y+18, self.x+3, self.y+3, self.x+18, self.y+3]
+            width: 1.5
+        Line:
+            points: [self.right-18, self.y+3, self.right-3, self.y+3, self.right-3, self.y+18]
+            width: 1.5
+        Line:
+            points: [self.x+3, self.top-18, self.x+3, self.top-3, self.x+18, self.top-3]
+            width: 1.5
+        Line:
+            points: [self.right-18, self.top-3, self.right-3, self.top-3, self.right-3, self.top-18]
+            width: 1.5
+
+    # ── TÍTULO ──────────────────────────────────────────────────────────────
+    BoxLayout:
+        size_hint_y: None
+        height: '58dp'
+        orientation: 'vertical'
+        canvas.before:
+            Color:
+                rgba: 0.05, 0.15, 0.45, 0.12
+            Rectangle:
+                pos: self.pos
+                size: self.size
+
+        CyanLabel:
+            text: 'J'
+            font_size: '36sp'
+            letter_spacing: 10
+            size_hint_y: 0.58
+            canvas.before:
+                Color:
+                    rgba: 0.0, 0.3, 0.7, 0.22
+                Rectangle:
+                    pos: self.pos
+                    size: self.size
+
+        BoxLayout:
+            size_hint_y: 0.42
+            spacing: 6
+
+            BlueLabel:
+                text: '⟁ AI'
+                font_size: '10sp'
+                letter_spacing: 3
+
+            Label:
+                text: '◈'
+                font_size: '10sp'
+                color: 0.2, 0.65, 1.0, 1
+                size_hint_x: None
+                width: '14dp'
+
+            BlueLabel:
+                text: 'ASSISTANT ⟁'
+                font_size: '10sp'
+                letter_spacing: 3
+
+    # ── ORBE ────────────────────────────────────────────────────────────────
+    OrbWidget:
+        id: orb
+        size_hint_y: None
+        height: '140dp'
+
+    # ── CANCIÓN + ESTADO + RESPUESTA J ──────────────────────────────────────
+    BoxLayout:
+        size_hint_y: None
+        height: '72dp'
+        orientation: 'vertical'
+        canvas.before:
+            Color:
+                rgba: 0.05, 0.12, 0.38, 0.12
+            RoundedRectangle:
+                pos: self.pos
+                size: self.size
+                radius: [5]
+            Color:
+                rgba: 0.1, 0.45, 0.85, 0.5
+            Line:
+                rounded_rectangle: [self.x+1, self.y+1, self.width-2, self.height-2, 5]
+                width: 0.9
+
+        Label:
+            id: lbl_cancion
+            text: '— SIN SEÑAL —'
+            font_size: '13sp'
+            color: 0.95, 0.95, 0.95, 1
+            bold: True
+            size_hint_y: 0.4
+            text_size: self.size
+            halign: 'center'
+            valign: 'middle'
+            shorten: True
+            shorten_from: 'right'
+
+        Label:
+            id: lbl_status
+            text: 'INICIANDO SISTEMAS...'
+            font_size: '9sp'
+            color: 0.25, 0.65, 1.0, 1
+            size_hint_y: 0.28
+            letter_spacing: 1.5
+
+        Label:
+            id: lbl_j_response
+            text: 'J: en espera de órdenes.'
+            font_size: '9sp'
+            color: 0.5, 0.9, 1.0, 0.9
+            size_hint_y: 0.32
+            text_size: self.size
+            halign: 'center'
+            valign: 'middle'
+            shorten: True
+            shorten_from: 'right'
+            italic: True
+
+    # ── PROGRESO ────────────────────────────────────────────────────────────
+    BoxLayout:
+        size_hint_y: None
+        height: '20dp'
+        spacing: 6
+
+        Label:
+            id: lbl_tiempo
+            text: '0:00'
+            font_size: '9sp'
+            color: 0.2, 0.65, 1.0, 1
+            size_hint_x: None
+            width: '30dp'
+            bold: True
+
+        ProgressWidget:
+            id: prog_widget
+
+        Label:
+            id: lbl_duracion
+            text: '0:00'
+            font_size: '9sp'
+            color: 0.2, 0.65, 1.0, 1
+            size_hint_x: None
+            width: '30dp'
+            bold: True
+
+    # ── VOLUMEN ─────────────────────────────────────────────────────────────
+    BoxLayout:
+        size_hint_y: None
+        height: '28dp'
+        spacing: 8
+
+        Label:
+            text: '◈'
+            font_size: '11sp'
+            color: 0.2, 0.65, 1.0, 0.8
+            size_hint_x: None
+            width: '18dp'
+
+        Slider:
+            id: vol_slider
+            min: 0
+            max: 1
+            value: 0.7
+            on_value:
+                app.cambiar_volumen(self, self.value)
+                lbl_vol_pct.text = f'{int(self.value*100)}%'
+
+        Label:
+            id: lbl_vol_pct
+            text: '70%'
+            font_size: '10sp'
+            color: 0.25, 0.65, 1.0, 1
+            size_hint_x: None
+            width: '30dp'
+            bold: True
+
+    # ── CONTROLES ───────────────────────────────────────────────────────────
+    BoxLayout:
+        size_hint_y: None
+        height: '54dp'
+        spacing: 7
+
+        RuneButton:
+            text: '⏮'
+            font_size: '20sp'
+            on_press: app.anterior()
+
+        RuneButton:
+            text: '▶'
+            font_size: '24sp'
+            bold: True
+            on_press: app.reproducir()
+            canvas.before:
+                Color:
+                    rgba: (0.05, 0.2, 0.55, 0.28) if self.state == 'normal' else (0.1, 0.4, 0.9, 0.5)
+                RoundedRectangle:
+                    pos: self.pos
+                    size: self.size
+                    radius: [4]
+                Color:
+                    rgba: (0.15, 0.6, 1.0, 1) if self.state == 'normal' else (0.4, 0.85, 1.0, 1)
+                Line:
+                    rounded_rectangle: [self.x+1, self.y+1, self.width-2, self.height-2, 4]
+                    width: 1.8
+
+        RuneButton:
+            text: '⏸'
+            font_size: '20sp'
+            on_press: app.pausar()
+
+        RuneButton:
+            text: '⏹'
+            font_size: '20sp'
+            on_press: app.detener()
+
+        RuneButton:
+            text: '⏭'
+            font_size: '20sp'
+            on_press: app.siguiente()
+
+    # ── MICRÓFONO / J ───────────────────────────────────────────────────────
+    BoxLayout:
+        size_hint_y: None
+        height: '42dp'
+        spacing: 8
+        canvas.before:
+            Color:
+                rgba: 0.03, 0.1, 0.3, 0.12
+            RoundedRectangle:
+                pos: self.pos
+                size: self.size
+                radius: [4]
+            Color:
+                rgba: 0.1, 0.4, 0.85, 0.3
+            Line:
+                rounded_rectangle: [self.x+1, self.y+1, self.width-2, self.height-2, 4]
+                width: 0.8
+
+        RuneButton:
+            id: btn_mic
+            text: '🎙  ACTIVAR J'
+            font_size: '11sp'
+            size_hint_x: 0.48
+            letter_spacing: 1
+            on_press: app.toggle_microfono()
+
+        BoxLayout:
+            orientation: 'vertical'
+            size_hint_x: 0.52
+            padding: [6, 4]
+
+            Label:
+                id: lbl_mic_status
+                text: 'MICRÓFONO INACTIVO'
+                font_size: '9sp'
+                color: 0.45, 0.45, 0.45, 1
+                text_size: self.size
+                halign: 'left'
+                valign: 'middle'
+                bold: True
+                letter_spacing: 0.5
+
+            Label:
+                id: lbl_mic_comando
+                text: 'di cualquier cosa a J'
+                font_size: '8sp'
+                color: 0.25, 0.35, 0.6, 0.8
+                text_size: self.size
+                halign: 'left'
+                valign: 'middle'
+
+    # ── BIBLIOTECA ──────────────────────────────────────────────────────────
+    BoxLayout:
+        size_hint_y: None
+        height: '26dp'
+        spacing: 6
+        canvas.before:
+            Color:
+                rgba: 0.05, 0.15, 0.4, 0.1
+            Rectangle:
+                pos: self.pos
+                size: self.size
+
+        CyanLabel:
+            id: lbl_biblioteca
+            text: 'BIBLIOTECA: — temas'
+            font_size: '10sp'
+            size_hint_x: 0.65
+            text_size: self.size
+            halign: 'left'
+            valign: 'middle'
+            padding_x: 6
+
+        RuneButton:
+            text: '⟳  CARGAR'
+            font_size: '9sp'
+            size_hint_x: 0.35
+            letter_spacing: 1
+            on_press: app.cargar_biblioteca(0)
+
+    # ── LISTA ───────────────────────────────────────────────────────────────
+    ScrollView:
+        do_scroll_x: False
+        bar_width: 3
+        bar_color: 0.2, 0.6, 1.0, 0.7
+        bar_inactive_color: 0.1, 0.3, 0.6, 0.4
+        canvas.before:
+            Color:
+                rgba: 0.04, 0.1, 0.28, 0.08
+            RoundedRectangle:
+                pos: self.pos
+                size: self.size
+                radius: [4]
+            Color:
+                rgba: 0.1, 0.35, 0.75, 0.32
+            Line:
+                rounded_rectangle: [self.x+1, self.y+1, self.width-2, self.height-2, 4]
+                width: 0.8
+
+        GridLayout:
+            id: lista_grid
+            cols: 1
+            size_hint_y: None
+            height: self.minimum_height
+            spacing: 2
+            padding: [4, 4, 4, 4]
