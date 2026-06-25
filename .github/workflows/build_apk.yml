@@ -52,6 +52,10 @@ jobs:
           restore-keys: |
             buildozer-j-${{ runner.os }}-v1-
 
+      - name: Crear config.py con API key
+        run: |
+          printf 'GROQ_API_KEY = "%s"\n' "${{ secrets.GROQ_API_KEY }}" > config.py
+
       - name: Compilar APK
         env:
           JAVA_HOME: /usr/lib/jvm/temurin-17-jdk-amd64
