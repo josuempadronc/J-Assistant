@@ -8,6 +8,7 @@ import os
 import math
 import json
 import re
+import ssl
 import threading
 import urllib.request
 import urllib.parse
@@ -314,6 +315,7 @@ class J_App(App):
         self._tts           = None
         self._tts_listo     = False
         self._flash_on      = False
+        self._wake_lock     = None
 
         self.root_widget = J_Layout()
         Clock.schedule_interval(self._tick_progreso, 0.5)
@@ -344,10 +346,20 @@ class J_App(App):
             TTS    = autoclass('android.speech.tts.TextToSpeech')
             Locale = autoclass('java.util.Locale')
             if status == TTS.SUCCESS:
-                self._tts.setLanguage(Locale("es", "ES"))
+                # Intentar español; fallback al idioma del dispositivo
+                r = self._tts.setLanguage(Locale("es", "ES"))
+                if r < 0:   # LANG_MISSING_DATA o LANG_NOT_SUPPORTED
+                    r = self._tts.setLanguage(Locale("es"))
+                if r < 0:
+                    self._tts.setLanguage(Locale.getDefault())
                 self._tts_listo = True
-                Clock.schedule_once(lambda dt: self._hablar("J en línea. Sistemas operativos."), 0.5)
-        except Exception:
+                self._set_status('TTS LISTO')
+                Clock.schedule_once(lambda dt: self._hablar("J en linea."), 0.8)
+            else:
+                self._set_status('TTS ERROR: ' + str(status))
+                self._tts_listo = False
+        except Exception as e:
+            self._set_status('TTS INIT ERR: ' + str(e)[:20])
             self._tts_listo = False
 
     def _hablar(self, texto):
@@ -355,9 +367,11 @@ class J_App(App):
         if ANDROID and self._tts_listo and self._tts:
             try:
                 TTS = autoclass('android.speech.tts.TextToSpeech')
-                self._tts.speak(texto, TTS.QUEUE_FLUSH, None, None)
-            except Exception:
-                pass
+                # API 21+: speak(CharSequence, int, Bundle, String utteranceId)
+                # utteranceId no puede ser null en algunas versiones
+                self._tts.speak(texto, TTS.QUEUE_FLUSH, None, "J")
+            except Exception as e:
+                self._set_status('TTS SPEAK ERR: ' + str(e)[:20])
 
     # ══════════════════════════════════════════════════════════════════════════
     # BIBLIOTECA
@@ -511,14 +525,19 @@ class J_App(App):
     def toggle_microfono(self):
         self.mic_activo = not self.mic_activo
         if self.mic_activo:
-            self.root_widget.ids.btn_mic.text = '🎙  J: ESCUCHANDO'
+            self.root_widget.ids.btn_mic.text = '( * )  J: ACTIVO'
             self._set_mic_ui(True, 'INICIANDO...')
-            if ANDROID: self._iniciar_reconocimiento()
-            else: self._set_mic_ui(True, 'MODO PC — SIN MIC REAL')
+            if ANDROID:
+                self._adquirir_wakelock()
+                self._iniciar_reconocimiento()
+            else:
+                self._set_mic_ui(True, 'MODO PC — SIN MIC REAL')
         else:
-            self.root_widget.ids.btn_mic.text = '🎙  ACTIVAR J'
-            self._set_mic_ui(False, 'MICRÓFONO INACTIVO')
-            if ANDROID: self._detener_reconocimiento()
+            self.root_widget.ids.btn_mic.text = '( o )  ACTIVAR J'
+            self._set_mic_ui(False, 'MICROFONO INACTIVO')
+            if ANDROID:
+                self._liberar_wakelock()
+                self._detener_reconocimiento()
 
     def _set_mic_ui(self, activo, texto):
         lbl  = self.root_widget.ids.lbl_mic_status
@@ -617,13 +636,16 @@ class J_App(App):
                 GROQ_URL, data=payload, method='POST',
                 headers={'Authorization': f'Bearer {GROQ_API_KEY}',
                          'Content-Type': 'application/json'})
-            with urllib.request.urlopen(req, timeout=10) as r:
+            # SSL context sin verificación (necesario en p4a/Android sin CA bundle)
+            ctx = ssl._create_unverified_context()
+            with urllib.request.urlopen(req, timeout=12, context=ctx) as r:
                 data = json.loads(r.read().decode('utf-8'))
                 resp = data['choices'][0]['message']['content'].strip()
                 Clock.schedule_once(lambda dt, x=resp: self._on_llm(x), 0)
-        except Exception:
-            Clock.schedule_once(lambda dt, t=texto:
-                self._cmd_simple(t.lower()), 0)
+        except Exception as e:
+            err = str(e)[:35]
+            Clock.schedule_once(lambda dt, m=err: self._set_status(f'GROQ: {m}'), 0)
+            Clock.schedule_once(lambda dt, t=texto: self._cmd_simple(t.lower()), 0)
 
     def _on_llm(self, respuesta):
         match = re.search(r'\[CMD:([^\]]+)\]', respuesta)
@@ -952,6 +974,73 @@ Responde lo que el usuario preguntó y ejecuta el comando apropiado."""
 
         if ANDROID and self.mic_activo:
             Clock.schedule_once(lambda dt: self._iniciar_reconocimiento(), 2.0)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # BACKGROUND — PANTALLA BLOQUEADA — WAKELOCK
+    # ══════════════════════════════════════════════════════════════════════════
+
+    def on_pause(self):
+        # Kivy: retornar True permite que la app siga corriendo en background
+        return True
+
+    def on_resume(self):
+        pass
+
+    def _adquirir_wakelock(self):
+        """Mantiene la CPU activa con la pantalla apagada."""
+        try:
+            PA = autoclass('org.kivy.android.PythonActivity')
+            PM = autoclass('android.os.PowerManager')
+            pm = PA.mActivity.getSystemService('power')
+            if not hasattr(self, '_wake_lock') or self._wake_lock is None:
+                # PARTIAL_WAKE_LOCK: CPU encendida, pantalla puede apagarse
+                self._wake_lock = pm.newWakeLock(
+                    PM.PARTIAL_WAKE_LOCK, 'J::AssistantWakeLock')
+            if not self._wake_lock.isHeld():
+                self._wake_lock.acquire()
+            self._activar_sobre_pantalla_bloqueada()
+        except Exception as e:
+            self._set_status('WAKELOCK ERR: ' + str(e)[:20])
+
+    def _liberar_wakelock(self):
+        try:
+            if hasattr(self, '_wake_lock') and self._wake_lock \
+                    and self._wake_lock.isHeld():
+                self._wake_lock.release()
+        except Exception:
+            pass
+
+    def _activar_sobre_pantalla_bloqueada(self):
+        """Permite que J responda incluso con la pantalla bloqueada."""
+        try:
+            PA  = autoclass('org.kivy.android.PythonActivity')
+            WLP = autoclass('android.view.WindowManager$LayoutParams')
+            win = PA.mActivity.getWindow()
+            # Mantener pantalla encendida + mostrar sobre lock screen
+            win.addFlags(
+                WLP.FLAG_KEEP_SCREEN_ON |
+                WLP.FLAG_SHOW_WHEN_LOCKED |
+                WLP.FLAG_TURN_SCREEN_ON
+            )
+        except Exception:
+            pass
+
+    def _pedir_exencion_bateria(self, dt=0):
+        """Solicita al usuario que J quede exento de optimización de batería."""
+        try:
+            PA       = autoclass('org.kivy.android.PythonActivity')
+            Intent   = autoclass('android.content.Intent')
+            Uri      = autoclass('android.net.Uri')
+            Settings = autoclass('android.provider.Settings')
+            activity = PA.mActivity
+            pkg      = activity.getPackageName()
+            intent   = Intent(
+                Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                Uri.parse(f"package:{pkg}")
+            )
+            activity.startActivity(intent)
+        except Exception:
+            pass
 
     # ══════════════════════════════════════════════════════════════════════════
     # PERMISOS

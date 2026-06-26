@@ -246,8 +246,8 @@
         spacing: 7
 
         RuneButton:
-            text: '⏮'
-            font_size: '20sp'
+            text: '◄◄'
+            font_size: '16sp'
             on_press: app.anterior()
 
         RuneButton:
@@ -269,18 +269,19 @@
                     width: 1.8
 
         RuneButton:
-            text: '⏸'
-            font_size: '20sp'
+            text: '||'
+            font_size: '18sp'
+            bold: True
             on_press: app.pausar()
 
         RuneButton:
-            text: '⏹'
-            font_size: '20sp'
+            text: '■'
+            font_size: '18sp'
             on_press: app.detener()
 
         RuneButton:
-            text: '⏭'
-            font_size: '20sp'
+            text: '▶▶'
+            font_size: '16sp'
             on_press: app.siguiente()
 
     # ── MICRÓFONO / J ───────────────────────────────────────────────────────
@@ -303,7 +304,7 @@
 
         RuneButton:
             id: btn_mic
-            text: '🎙  ACTIVAR J'
+            text: '( o )  ACTIVAR J'
             font_size: '11sp'
             size_hint_x: 0.48
             letter_spacing: 1
