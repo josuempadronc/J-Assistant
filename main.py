@@ -366,12 +366,13 @@ class J_App(App):
         self._set_j_response(texto)
         if ANDROID and self._tts_listo and self._tts:
             try:
-                TTS = autoclass('android.speech.tts.TextToSpeech')
+                TTS    = autoclass('android.speech.tts.TextToSpeech')
+                Bundle = autoclass('android.os.Bundle')
+                params = Bundle()
                 # API 21+: speak(CharSequence, int, Bundle, String utteranceId)
-                # utteranceId no puede ser null en algunas versiones
-                self._tts.speak(texto, TTS.QUEUE_FLUSH, None, "J")
+                self._tts.speak(texto, TTS.QUEUE_FLUSH, params, "J")
             except Exception as e:
-                self._set_status('TTS SPEAK ERR: ' + str(e)[:20])
+                self._set_status('TTS SPEAK ERR: ' + str(e)[:30])
 
     # ══════════════════════════════════════════════════════════════════════════
     # BIBLIOTECA
@@ -405,29 +406,52 @@ class J_App(App):
         ])
 
     def _escanear_musica_android(self):
-        ext = ('.mp3','.ogg','.wav','.flac','.m4a','.aac','.opus')
-        dirs = ["/storage/emulated/0/Music","/storage/emulated/0/music",
-                "/storage/emulated/0/Download","/storage/emulated/0/Downloads",
-                "/sdcard/Music","/sdcard/Download"]
-        out, seen = [], set()
-        for d in dirs:
-            if not os.path.exists(d): continue
+        """Usa MediaStore (índice del SO) para encontrar música; fallback a filesystem."""
+        # ── 1. MediaStore ─────────────────────────────────────────────────────
+        try:
+            PA       = autoclass('org.kivy.android.PythonActivity')
+            Media    = autoclass('android.provider.MediaStore$Audio$Media')
+            uri      = Media.EXTERNAL_CONTENT_URI
+            resolver = PA.mActivity.getContentResolver()
+            cursor   = resolver.query(uri, None, 'is_music=1', None, 'title ASC')
+            archivos = []
+            if cursor and cursor.moveToFirst():
+                col = cursor.getColumnIndex('_data')
+                while True:
+                    path = cursor.getString(col)
+                    if path and os.path.isfile(path):
+                        archivos.append(path)
+                    if not cursor.moveToNext():
+                        break
+                cursor.close()
+            if archivos:
+                return archivos
+        except Exception:
+            pass
+
+        # ── 2. Fallback: filesystem 3 niveles ─────────────────────────────────
+        EXT  = ('.mp3', '.wav', '.flac', '.m4a', '.aac', '.ogg', '.opus')
+        DIRS = ["/storage/emulated/0/Music", "/storage/emulated/0/music",
+                "/storage/emulated/0/Musica", "/storage/emulated/0/Download",
+                "/storage/emulated/0/Downloads", "/sdcard/Music", "/sdcard/Download"]
+        archivos, seen = [], set()
+
+        def _scan(path, depth):
+            if depth > 3: return
             try:
-                for e in os.listdir(d):
-                    p = os.path.join(d, e)
-                    if e.lower().endswith(ext):
-                        k = os.path.realpath(p)
-                        if k not in seen: seen.add(k); out.append(p)
-                    elif os.path.isdir(p):
-                        try:
-                            for s in os.listdir(p):
-                                if s.lower().endswith(ext):
-                                    sp = os.path.join(p, s)
-                                    k  = os.path.realpath(sp)
-                                    if k not in seen: seen.add(k); out.append(sp)
-                        except: pass
-            except: pass
-        return sorted(out, key=lambda x: os.path.basename(x).lower())
+                for e in os.listdir(path):
+                    ruta = os.path.join(path, e)
+                    if e.lower().endswith(EXT):
+                        k = os.path.realpath(ruta)
+                        if k not in seen: seen.add(k); archivos.append(ruta)
+                    elif os.path.isdir(ruta) and not e.startswith('.'):
+                        _scan(ruta, depth + 1)
+            except Exception:
+                pass
+
+        for d in DIRS:
+            if os.path.exists(d): _scan(d, 1)
+        return sorted(archivos, key=lambda x: os.path.basename(x).lower())
 
     def _actualizar_ui_cancion(self):
         nombre = self.lista_musica[self.indice_actual]
