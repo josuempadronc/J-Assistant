@@ -316,6 +316,7 @@ class J_App(App):
         self._tts_listo     = False
         self._flash_on      = False
         self._wake_lock     = None
+        self._batch_idx     = 0
 
         self.root_widget = J_Layout()
         Clock.schedule_interval(self._tick_progreso, 0.5)
@@ -366,34 +367,54 @@ class J_App(App):
         self._set_j_response(texto)
         if ANDROID and self._tts_listo and self._tts:
             try:
-                TTS    = autoclass('android.speech.tts.TextToSpeech')
-                Bundle = autoclass('android.os.Bundle')
-                params = Bundle()
-                # API 21+: speak(CharSequence, int, Bundle, String utteranceId)
-                self._tts.speak(texto, TTS.QUEUE_FLUSH, params, "J")
+                TTS     = autoclass('android.speech.tts.TextToSpeech')
+                Bundle  = autoclass('android.os.Bundle')
+                JString = autoclass('java.lang.String')
+                params  = Bundle()
+                # JString explícito para que Pyjnius resuelva el overload CharSequence
+                self._tts.speak(JString(texto), TTS.QUEUE_FLUSH, params, "J")
             except Exception as e:
-                self._set_status('TTS SPEAK ERR: ' + str(e)[:30])
+                self._set_status('TTS ERR: ' + str(e)[:30])
 
     # ══════════════════════════════════════════════════════════════════════════
     # BIBLIOTECA
     # ══════════════════════════════════════════════════════════════════════════
 
     def cargar_biblioteca(self, dt=0):
-        grid = self.root_widget.ids.lista_grid
-        grid.clear_widgets(); self.song_items.clear()
+        self._set_status('ESCANEANDO...')
+        threading.Thread(target=self._escanear_bg, daemon=True).start()
 
-        archivos = self._escanear_musica_android() if ANDROID else \
-                   self._escanear_local()
+    def _escanear_bg(self):
+        archivos = self._escanear_musica_android() if ANDROID else self._escanear_local()
+        Clock.schedule_once(lambda dt, a=archivos: self._poblar_biblioteca(a), 0)
+
+    def _poblar_biblioteca(self, archivos):
+        grid = self.root_widget.ids.lista_grid
+        grid.clear_widgets()
+        self.song_items.clear()
+        self._batch_idx = 0
 
         self.lista_musica = archivos or ["Demo — Sin Señal.mp3", "Protocolo J.mp3"]
-        self.root_widget.ids.lbl_biblioteca.text = f'BIBLIOTECA: {len(self.lista_musica)} TEMAS'
-
-        for i, ruta in enumerate(self.lista_musica):
-            item = SongItem(nombre=os.path.basename(ruta), indice=i, app_ref=self)
-            grid.add_widget(item); self.song_items.append(item)
-
+        total = len(self.lista_musica)
+        self.root_widget.ids.lbl_biblioteca.text = f'BIBLIOTECA: {total} TEMAS'
         if self.lista_musica:
             self._actualizar_ui_cancion()
+            self._set_status('CARGANDO LISTA...')
+        Clock.schedule_once(self._poblar_batch, 0)
+
+    def _poblar_batch(self, dt):
+        BATCH = 12
+        grid  = self.root_widget.ids.lista_grid
+        fin   = min(self._batch_idx + BATCH, len(self.lista_musica))
+        for i in range(self._batch_idx, fin):
+            ruta = self.lista_musica[i]
+            item = SongItem(nombre=os.path.basename(ruta), indice=i, app_ref=self)
+            grid.add_widget(item)
+            self.song_items.append(item)
+        self._batch_idx = fin
+        if fin < len(self.lista_musica):
+            Clock.schedule_once(self._poblar_batch, 0.04)
+        else:
             self._set_status('SISTEMAS LISTOS')
 
     def _escanear_local(self):
