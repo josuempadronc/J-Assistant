@@ -209,30 +209,34 @@ class ProgressWidget(Widget):
 # ÍTEM DE CANCIÓN
 # ─────────────────────────────────────────────────────────────────────────────
 class SongItem(Button):
+    """Item minimalista sin canvas custom para no bloquear el UI thread."""
     def __init__(self, nombre, indice, app_ref, **kwargs):
         super().__init__(**kwargs)
-        self.nombre = nombre; self.indice = indice; self.app_ref = app_ref
-        self.text = f'  ᚱ  {nombre}'; self.font_size = '11sp'
-        self.halign = 'left'; self.size_hint_y = None; self.height = '36dp'
-        self.background_normal = ''; self.background_color = (0,0,0,0)
-        self.color = (0.82,0.82,0.82,1); self.bold = False
-        self.bind(on_press=lambda i: self.app_ref.reproducir_indice(self.indice))
-        self.bind(pos=self._upd, size=self._upd)
-        with self.canvas.before:
-            self._cbg  = Color(0.05,0.1,0.3,0.09)
-            self._rbg  = RoundedRectangle(pos=self.pos, size=self.size, radius=[3])
-            self._cbrd = Color(0.1,0.35,0.75,0.22)
-            self._lbrd = Line(rounded_rectangle=[self.x,self.y,self.width,self.height,3], width=0.7)
-    def _upd(self, *_):
-        self._rbg.pos=self.pos; self._rbg.size=self.size
-        self._lbrd.rounded_rectangle=[self.x,self.y,self.width,self.height,3]
+        self.nombre          = nombre
+        self.indice          = indice
+        self.app_ref         = app_ref
+        self.text            = nombre
+        self.font_size       = '11sp'
+        self.halign          = 'left'
+        self.text_size       = (None, None)
+        self.size_hint_y     = None
+        self.height          = '34dp'
+        self.background_normal  = ''
+        self.background_color   = (0.04, 0.08, 0.25, 0.85)
+        self.color           = (0.78, 0.78, 0.78, 1)
+        self.bind(on_press=lambda *_: self.app_ref.reproducir_indice(self.indice))
+
     def set_activo(self, v):
         if v:
-            self._cbg.rgba=(0.05,0.2,0.55,0.32); self._cbrd.rgba=(0.3,0.75,1.0,0.92)
-            self.color=(0.5,0.9,1.0,1); self.bold=True; self.text=f'  ▶  {self.nombre}'
+            self.background_color = (0.05, 0.2, 0.55, 0.95)
+            self.color = (0.5, 0.9, 1.0, 1)
+            self.bold  = True
+            self.text  = f'> {self.nombre}'
         else:
-            self._cbg.rgba=(0.05,0.1,0.3,0.09); self._cbrd.rgba=(0.1,0.35,0.75,0.22)
-            self.color=(0.82,0.82,0.82,1); self.bold=False; self.text=f'  ᚱ  {self.nombre}'
+            self.background_color = (0.04, 0.08, 0.25, 0.85)
+            self.color = (0.78, 0.78, 0.78, 1)
+            self.bold  = False
+            self.text  = self.nombre
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -440,13 +444,13 @@ class J_App(App):
                 col = cursor.getColumnIndex('_data')
                 while True:
                     path = cursor.getString(col)
-                    if path and os.path.isfile(path):
+                    if path and '/Android/' not in path and os.path.isfile(path):
                         archivos.append(path)
                     if not cursor.moveToNext():
                         break
                 cursor.close()
             if archivos:
-                return archivos
+                return archivos[:100]
         except Exception:
             pass
 
@@ -458,7 +462,7 @@ class J_App(App):
         archivos, seen = [], set()
 
         def _scan(path, depth):
-            if depth > 3: return
+            if depth > 3 or '/Android/' in path: return
             try:
                 for e in os.listdir(path):
                     ruta = os.path.join(path, e)
@@ -472,7 +476,7 @@ class J_App(App):
 
         for d in DIRS:
             if os.path.exists(d): _scan(d, 1)
-        return sorted(archivos, key=lambda x: os.path.basename(x).lower())
+        return sorted(archivos, key=lambda x: os.path.basename(x).lower())[:100]
 
     def _actualizar_ui_cancion(self):
         nombre = self.lista_musica[self.indice_actual]
