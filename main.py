@@ -9,9 +9,11 @@ import math
 import json
 import re
 import ssl
+import random
 import threading
 import urllib.request
 import urllib.parse
+from datetime import datetime
 
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
@@ -72,6 +74,41 @@ APPS_CONOCIDAS = {
     'settings':      'com.android.settings',
     'clock':         'com.google.android.deskclock',
     'reloj':         'com.google.android.deskclock',
+}
+
+# Frases de personalidad Jarvis — se elige una al azar en cada respuesta
+JARVIS = {
+    'ok':         ["Entendido, señor.", "Como ordene.", "De acuerdo.", "Por supuesto, señor."],
+    'musica_play':["Reproduciendo, señor.", "Iniciando música.", "Como ordene, señor.", "Con gusto."],
+    'musica_sig': ["Siguiente pista, señor.", "Cambiando.", "Siguiente.", "Adelante."],
+    'musica_ant': ["Pista anterior, señor.", "Volviendo.", "De acuerdo, señor."],
+    'musica_pau': ["En pausa, señor.", "Pausando.", "Pausa activada, señor."],
+    'musica_stop':["Detenido, señor.", "Música detenida.", "Como ordene, señor."],
+    'vol_up':     ["Subiendo el volumen, señor.", "Volumen aumentado.", "Ahí va, señor."],
+    'vol_down':   ["Bajando el volumen, señor.", "Volumen reducido.", "Listo, señor."],
+    'flash_on':   ["Linterna encendida, señor.", "Iluminando.", "Luz activada, señor."],
+    'flash_off':  ["Linterna apagada, señor.", "Luz desactivada.", "Oscureciendo."],
+    'bateria':    ["Revisando batería, señor.", "Un momento.", "Comprobando nivel de carga."],
+    'llamar':     ["Llamando a {}, señor.", "Conectando con {}.", "Realizando la llamada."],
+    'sms':        ["Enviando mensaje a {}, señor.", "Mensaje en camino a {}.", "Enviado, señor."],
+    'whatsapp':   ["Enviando WhatsApp a {}, señor.", "Mensaje de WhatsApp en camino a {}."],
+    'abrir':      ["Abriendo {}, señor.", "Iniciando {}.", "Ejecutando {}, señor."],
+    'alarma':     ["Alarma configurada para las {}, señor.", "Alarma puesta. Descanse, señor."],
+    'foto':       ["Capturando foto, señor.", "Tomando fotografía.", "Clic. Listo, señor."],
+    'brillo':     ["Brillo al {}%, señor.", "Ajustando brillo a {}%.", "Listo, señor."],
+    'volumen':    ["Volumen al {}%, señor.", "Ajustando volumen a {}%.", "Listo."],
+    'clima':      ["Consultando el clima, señor.", "Buscando información del tiempo.", "Un momento."],
+    'cancion':    ["Reproduciendo {}, señor.", "Poniendo {}.", "Aquí está {}, señor."],
+    'no_entiendo':["No he comprendido, señor. Repita la orden.", "Podría repetir eso?",
+                   "No entendí, señor. Intente de nuevo.", "No capté la orden, señor."],
+    'activado':   ["Sistema J activo. A sus órdenes, señor.", "Listo para asistirle, señor.",
+                   "J en línea. Qué necesita, señor?", "A su servicio, señor."],
+    'hora':       ["Son las {}, señor.", "La hora actual es {}, señor.", "{}"],
+    'fecha':      ["Hoy es {}, señor.", "La fecha de hoy es {}.", "{}, señor."],
+    'timer':      ["Temporizador de {} minutos activado, señor.", "Contando {} minutos, señor."],
+    'sin_canciones': ["No hay canciones en la biblioteca, señor.", "Biblioteca vacía, señor."],
+    'no_cancion': ["No encontré esa canción, señor.", "No la encontré en la biblioteca."],
+    'no_contacto':["No encontré ese contacto, señor.", "Contacto no localizado."],
 }
 
 
@@ -579,6 +616,8 @@ class J_App(App):
             if ANDROID:
                 self._adquirir_wakelock()
                 self._iniciar_reconocimiento()
+                # J saluda al activarse
+                Clock.schedule_once(lambda dt: self._hablar(self._j('activado')), 0.5)
             else:
                 self._set_mic_ui(True, 'MODO PC — SIN MIC REAL')
         else:
@@ -587,6 +626,7 @@ class J_App(App):
             if ANDROID:
                 self._liberar_wakelock()
                 self._detener_reconocimiento()
+                Clock.schedule_once(lambda dt: self._hablar('Hasta luego, señor.'), 0)
 
     def _set_mic_ui(self, activo, texto):
         lbl  = self.root_widget.ids.lbl_mic_status
@@ -647,11 +687,20 @@ class J_App(App):
         except: pass
 
     def _on_voice_error(self, error):
-        if error in (6, 7) and self.mic_activo:
-            Clock.schedule_once(lambda dt: self._iniciar_reconocimiento(), 1.0)
+        # 6=NO_MATCH, 7=SPEECH_TIMEOUT, 5=CLIENT — todos reinician silenciosamente
+        # 1=NETWORK, 2=NETWORK_TIMEOUT — reiniciar después de 3s
+        # 3=AUDIO, 4=SERVER — reiniciar después de 2s
+        if not self.mic_activo:
+            return
+        if error in (6, 7, 5):
+            Clock.schedule_once(lambda dt: self._iniciar_reconocimiento(), 0.8)
+        elif error in (1, 2):
+            Clock.schedule_once(lambda dt: self._iniciar_reconocimiento(), 3.0)
+        elif error in (3, 4):
+            Clock.schedule_once(lambda dt: self._iniciar_reconocimiento(), 2.0)
         else:
-            self._set_mic_ui(False, f'VOZ ERROR: {error}')
-            self.mic_activo = False
+            self._set_mic_ui(True, f'ERR {error} — reintentando...')
+            Clock.schedule_once(lambda dt: self._iniciar_reconocimiento(), 2.0)
 
     # ══════════════════════════════════════════════════════════════════════════
     # LLM (GROQ) — CEREBRO DE J
@@ -659,16 +708,14 @@ class J_App(App):
 
     def procesar_voz(self, texto: str):
         self._set_mic_ui(True, f'"{texto[:24]}"')
-
-        if not GROQ_API_KEY or GROQ_API_KEY == "TU_API_KEY_AQUI":
-            self._cmd_simple(texto.lower())
-            return
-
-        self._set_status('J PROCESANDO...')
-        threading.Thread(target=self._llamar_groq, args=(texto,), daemon=True).start()
-
-        if ANDROID and self.mic_activo:
-            Clock.schedule_once(lambda dt: self._iniciar_reconocimiento(), 5.0)
+        # Local siempre primero. Groq solo si hay key Y el comando local falló.
+        handled = self._cmd_local(texto.lower().strip())
+        if not handled and GROQ_API_KEY and GROQ_API_KEY != "TU_API_KEY_AQUI":
+            self._set_status('J PROCESANDO...')
+            threading.Thread(target=self._llamar_groq, args=(texto,), daemon=True).start()
+        elif not handled:
+            self._hablar(self._j('no_entiendo'))
+            self._auto_reiniciar()
 
     def _llamar_groq(self, texto):
         try:
@@ -694,7 +741,8 @@ class J_App(App):
         except Exception as e:
             err = str(e)[:35]
             Clock.schedule_once(lambda dt, m=err: self._set_status(f'GROQ: {m}'), 0)
-            Clock.schedule_once(lambda dt, t=texto: self._cmd_simple(t.lower()), 0)
+            Clock.schedule_once(lambda dt: self._hablar(self._j('no_entiendo')), 0)
+            Clock.schedule_once(lambda dt: self._auto_reiniciar(), 0.1)
 
     def _on_llm(self, respuesta):
         match = re.search(r'\[CMD:([^\]]+)\]', respuesta)
@@ -708,6 +756,7 @@ class J_App(App):
         if accion:
             Clock.schedule_once(lambda dt, a=accion, p=params:
                 self._ejecutar(a, p), 0.3)
+        self._auto_reiniciar(3.0)
 
     def _system_prompt(self):
         n  = len(self.lista_musica)
@@ -986,43 +1035,199 @@ Responde lo que el usuario preguntó y ejecuta el comando apropiado."""
         except Exception:
             Clock.schedule_once(lambda dt: self._hablar("No pude obtener el clima."), 0)
 
-    # ── Fallback sin API key ──────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════════
+    # CEREBRO LOCAL — JARVIS SIN INTERNET
+    # ══════════════════════════════════════════════════════════════════════════
 
-    def _cmd_simple(self, texto):
-        CMDS = {
-            'reproducir': ['play','reproduce','toca','pon','inicia','música','musica'],
-            'pausar':     ['pausa','pause','para','espera'],
-            'detener':    ['stop','detén','deten','silencio','apaga'],
-            'siguiente':  ['siguiente','next','adelante','salta','otra','avanza'],
-            'anterior':   ['anterior','atrás','atras','regresa','vuelve'],
-            'subir_vol':  ['sube','más alto','mas alto','más volumen'],
-            'bajar_vol':  ['baja','más bajo','mas bajo','menos volumen'],
-            'flash_on':   ['linterna','enciende la luz','prende la linterna','flash'],
-            'flash_off':  ['apaga la linterna','apaga la luz','apaga el flash'],
-            'bateria':    ['batería','bateria','cuánta batería','nivel de batería'],
-            'foto':       ['foto','fotografía','toma una foto','cámara'],
-        }
-        RESP = {
-            'reproducir': 'Reproduciendo.',   'pausar': 'En pausa.',
-            'detener':    'Detenido.',         'siguiente': 'Siguiente pista.',
-            'anterior':   'Pista anterior.',   'subir_vol': 'Subiendo volumen.',
-            'bajar_vol':  'Bajando volumen.',  'flash_on': 'Linterna encendida.',
-            'flash_off':  'Linterna apagada.', 'bateria': 'Revisando batería.',
-            'foto':       'Abriendo cámara.',
-        }
-        accion = next((c for c, ps in CMDS.items() if any(p in texto for p in ps)), None)
-        if accion:
-            self._hablar(RESP.get(accion, 'Ejecutado.'))
-            if accion == 'flash_on':   threading.Thread(target=self._toggle_flash, args=(True,), daemon=True).start()
-            elif accion == 'flash_off': threading.Thread(target=self._toggle_flash, args=(False,), daemon=True).start()
-            elif accion == 'bateria':  threading.Thread(target=self._check_bateria, daemon=True).start()
-            elif accion == 'foto':     self._tomar_foto()
-            else: self._ejecutar(accion)
-        else:
-            self._hablar('Sin API key. Configure Groq para lenguaje natural.')
+    def _j(self, key, *args):
+        """Elige una frase Jarvis aleatoria para la clave dada."""
+        frases = JARVIS.get(key, JARVIS['ok'])
+        f = random.choice(frases)
+        try:
+            return f.format(*args) if args else f
+        except Exception:
+            return f
 
+    def _auto_reiniciar(self, delay=2.0):
+        """Reinicia el micrófono para escucha continua."""
         if ANDROID and self.mic_activo:
-            Clock.schedule_once(lambda dt: self._iniciar_reconocimiento(), 2.0)
+            Clock.schedule_once(lambda dt: self._iniciar_reconocimiento(), delay)
+
+    def _buscar_cancion(self, query):
+        """Busca una canción por nombre aproximado en la biblioteca."""
+        if not self.lista_musica:
+            return -1
+        q = query.lower()
+        for i, ruta in enumerate(self.lista_musica):
+            n = os.path.basename(ruta).lower()
+            if q in n:
+                return i
+        # Coincidencia parcial: primeras 4 letras
+        if len(q) >= 4:
+            for i, ruta in enumerate(self.lista_musica):
+                if os.path.basename(ruta).lower().startswith(q[:4]):
+                    return i
+        return -1
+
+    def _cmd_local(self, t):
+        """Procesador de comandos local completo. Retorna True si manejó el comando."""
+
+        # ── Hora ─────────────────────────────────────────────────────────
+        if any(p in t for p in ['qué hora','que hora','hora es','dime la hora','qué horas son']):
+            hora = datetime.now().strftime('%H:%M')
+            self._hablar(self._j('hora', hora))
+            self._auto_reiniciar(); return True
+
+        # ── Fecha ─────────────────────────────────────────────────────────
+        if any(p in t for p in ['qué día','que dia','qué fecha','que fecha','hoy es','día de hoy']):
+            DIAS  = ['lunes','martes','miércoles','jueves','viernes','sábado','domingo']
+            MESES = ['enero','febrero','marzo','abril','mayo','junio','julio',
+                     'agosto','septiembre','octubre','noviembre','diciembre']
+            hoy = datetime.now()
+            s = f"{DIAS[hoy.weekday()]} {hoy.day} de {MESES[hoy.month-1]}"
+            self._hablar(self._j('fecha', s))
+            self._auto_reiniciar(); return True
+
+        # ── Temporizador ──────────────────────────────────────────────────
+        m = re.search(r'temporizador\s+(?:de\s+)?(\d+)\s*(?:minuto|min)', t)
+        if m:
+            mins = int(m.group(1))
+            self._hablar(self._j('timer', mins))
+            if ANDROID:
+                try:
+                    PA     = autoclass('org.kivy.android.PythonActivity')
+                    Intent = autoclass('android.content.Intent')
+                    intent = Intent('android.intent.action.SET_TIMER')
+                    intent.putExtra('android.intent.extra.alarm.LENGTH', mins * 60)
+                    intent.putExtra('android.intent.extra.alarm.SKIP_UI', True)
+                    PA.mActivity.startActivity(intent)
+                except Exception: pass
+            self._auto_reiniciar(); return True
+
+        # ── Llamar ────────────────────────────────────────────────────────
+        for pref in ['llama a ','llamar a ','llama al ','llamar al ','marca ','llama ','llame a ','comunicame con ']:
+            if pref in t:
+                contacto = t.split(pref, 1)[1].strip()
+                self._hablar(self._j('llamar', contacto))
+                threading.Thread(target=self._hacer_llamada, args=(contacto,), daemon=True).start()
+                self._auto_reiniciar(4.0); return True
+
+        # ── WhatsApp ──────────────────────────────────────────────────────
+        for pref in ['whatsapp a ','manda whatsapp a ','envía whatsapp a ','envia whatsapp a ',
+                     'mensaje de whatsapp a ','mándame whatsapp a ']:
+            if pref in t:
+                resto = t.split(pref, 1)[1].strip()
+                mg = re.search(r'\b(?:diciendo|di que|que diga|dile|diciendo que)\s+(.+)', resto)
+                contacto = resto[:mg.start()].strip() if mg else resto
+                msg = mg.group(1) if mg else 'Hola'
+                self._hablar(self._j('whatsapp', contacto))
+                threading.Thread(target=self._enviar_whatsapp, args=(contacto, msg), daemon=True).start()
+                self._auto_reiniciar(); return True
+
+        # ── SMS ───────────────────────────────────────────────────────────
+        for pref in ['sms a ','mensaje a ','manda sms a ','envía mensaje a ','envia mensaje a ']:
+            if pref in t:
+                resto = t.split(pref, 1)[1].strip()
+                mg = re.search(r'\b(?:diciendo|di que|que diga|dile)\s+(.+)', resto)
+                contacto = resto[:mg.start()].strip() if mg else resto
+                msg = mg.group(1) if mg else 'Hola'
+                self._hablar(self._j('sms', contacto))
+                threading.Thread(target=self._enviar_sms, args=(contacto, msg), daemon=True).start()
+                self._auto_reiniciar(); return True
+
+        # ── Abrir app ─────────────────────────────────────────────────────
+        for pref in ['abre ','abrir ','abre la ','abre el ','abrir la ','abrir el ',
+                     'inicia ','lanza ','entra a ','entra en ','ve a ']:
+            if pref in t:
+                app = t.split(pref, 1)[1].strip()
+                self._hablar(self._j('abrir', app))
+                threading.Thread(target=self._abrir_app, args=(app,), daemon=True).start()
+                self._auto_reiniciar(); return True
+
+        # ── Alarma ────────────────────────────────────────────────────────
+        m = re.search(r'(?:alarma|despertador)[^\d]*(\d{1,2})(?::(\d{2}))?', t)
+        if m:
+            h = int(m.group(1)); mn = int(m.group(2)) if m.group(2) else 0
+            self._hablar(self._j('alarma', f'{h}:{mn:02d}'))
+            self._set_alarma(h, mn)
+            self._auto_reiniciar(); return True
+
+        # ── Volumen específico ─────────────────────────────────────────────
+        m = re.search(r'volumen\s+(?:al\s+)?(\d+)\s*%?', t)
+        if m:
+            pct = int(m.group(1))
+            self._hablar(self._j('volumen', pct))
+            self._set_volumen(pct)
+            self._auto_reiniciar(); return True
+
+        # ── Brillo específico ─────────────────────────────────────────────
+        m = re.search(r'brillo\s+(?:al\s+)?(\d+)\s*%?', t)
+        if m:
+            pct = int(m.group(1))
+            self._hablar(self._j('brillo', pct))
+            self._set_brillo(pct)
+            self._auto_reiniciar(); return True
+
+        # ── Clima ─────────────────────────────────────────────────────────
+        m = re.search(r'(?:clima|tiempo|temperatura|pronóstico)\s+(?:de\s+|en\s+)?(.+)', t)
+        if m:
+            ciudad = m.group(1).strip()
+            self._hablar(self._j('clima'))
+            threading.Thread(target=self._get_clima, args=(ciudad,), daemon=True).start()
+            self._auto_reiniciar(); return True
+
+        # ── Canción específica ─────────────────────────────────────────────
+        for pref in ['pon ','toca ','reproduce ','busca la canción ','busca ','quiero escuchar ']:
+            if pref in t:
+                query = t.split(pref, 1)[1].strip()
+                idx = self._buscar_cancion(query)
+                if idx >= 0:
+                    nombre = os.path.basename(self.lista_musica[idx]).rsplit('.',1)[0]
+                    self.indice_actual = idx
+                    self._cargar_y_play()
+                    self._hablar(self._j('cancion', nombre))
+                elif not self.lista_musica:
+                    self._hablar(self._j('sin_canciones'))
+                else:
+                    self._hablar(self._j('no_cancion'))
+                self._auto_reiniciar(); return True
+
+        # ── Comandos simples ──────────────────────────────────────────────
+        SIMPLE = [
+            (['reproduce','play','música','musica','reanuda','continúa','continua','pon música','pon musica'],
+             'reproducir', 'musica_play'),
+            (['pausa','pause','para la música','para la musica','detén la música'],
+             'pausar', 'musica_pau'),
+            (['detén','deten','stop','para todo','silencio','apaga la música'],
+             'detener', 'musica_stop'),
+            (['siguiente','next','la que sigue','otra canción','otra cancion','cambia canción','avanza'],
+             'siguiente', 'musica_sig'),
+            (['anterior','atrás','atras','la anterior','vuelve','regresa'],
+             'anterior', 'musica_ant'),
+            (['sube el volumen','sube volumen','más alto','mas alto','más volumen','mas volumen'],
+             'subir_vol', 'vol_up'),
+            (['baja el volumen','baja volumen','más bajo','mas bajo','menos volumen','silencia'],
+             'bajar_vol', 'vol_down'),
+            (['enciende la linterna','prende la linterna','linterna','enciende la luz','prende la luz'],
+             'flash_on', 'flash_on'),
+            (['apaga la linterna','apaga la luz','apaga el flash','linterna apagada'],
+             'flash_off', 'flash_off'),
+            (['batería','bateria','cuánta batería','nivel de batería','carga del teléfono'],
+             'bateria', 'bateria'),
+            (['toma una foto','toma foto','foto','fotografía','saca una foto','captura'],
+             'foto', 'foto'),
+        ]
+        for kws, cmd, resp_key in SIMPLE:
+            if any(kw in t for kw in kws):
+                self._hablar(self._j(resp_key))
+                if   cmd == 'flash_on':  threading.Thread(target=self._toggle_flash, args=(True,),  daemon=True).start()
+                elif cmd == 'flash_off': threading.Thread(target=self._toggle_flash, args=(False,), daemon=True).start()
+                elif cmd == 'bateria':   threading.Thread(target=self._check_bateria, daemon=True).start()
+                elif cmd == 'foto':      self._tomar_foto()
+                else:                    self._ejecutar(cmd)
+                self._auto_reiniciar(); return True
+
+        return False  # no manejado → caller decide (Groq o "no entendí")
 
     # ══════════════════════════════════════════════════════════════════════════
     # BACKGROUND — PANTALLA BLOQUEADA — WAKELOCK
